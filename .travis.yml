@@ -1,0 +1,48 @@
+dist: bionic
+language: bash
+env:
+  - tf_version=0.14.6 tf_apply_cli_options="-auto-approve" TF_VAR_base_name="tutorial"
+
+branches:
+  only:
+    - master
+
+# Install dependencies (terraform, ibmcloud cli, npm)
+# Create self signed certificate to communicate with etcd
+before_install:
+  - wget https://releases.hashicorp.com/terraform/"$tf_version"/terraform_"$tf_version"_linux_amd64.zip
+  - unzip terraform_"$tf_version"_linux_amd64.zip
+  - sudo mv terraform /usr/local/bin/
+  - rm terraform_"$tf_version"_linux_amd64.zip
+  - nvm install 12
+  - curl -fsSL https://clis.cloud.ibm.com/install/linux | sh
+  - ibmcloud login -a cloud.ibm.com -r us-south --apikey $IC_API_KEY
+  - ibmcloud plugin install cdb
+  - ibmcloud cdb deployment-cacert Terraform-etcd --save --certroot cacert && mv cacert/* ca.crt && rmdir cacert
+  - openssl req -newkey rsa:2048 -nodes -keyout key.pem -x509 -days 365 -out certificate.pem -subj "/C=PE/ST=Lima/L=Lima/OU=Terraform"
+
+jobs:
+  include:
+    #Terraform plan only on pull requests
+    - stage: terraform plan
+      if: type IN (pull_request)
+      script:
+        - echo "Synthetizing Terraform JSON File"
+        - npm install
+        - npm run get
+        - npm run synth
+        - cd cdktf.out
+        - terraform init
+        - terraform plan
+    #Terraform apply on push to master
+    - stage: terraform apply
+      if: type IN (push) and branch = master
+      script:
+        - echo "Synthetizing Terraform JSON File"
+        - npm install
+        - npm run get
+        - npm run synth
+        - echo "Executing Terraform Apply on merged code"
+        - cd cdktf.out
+        - terraform init
+        - terraform apply $tf_apply_cli_options
